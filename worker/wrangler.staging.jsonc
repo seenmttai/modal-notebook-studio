@@ -3,9 +3,12 @@
   "name": "modal-notebook-studio-staging",
   "main": "./dist/index.js",
   "compatibility_date": "2026-09-17",
+  "vars": {
+    "DENO_API_ORIGIN": "https://modal-notebook-studio.manan.deno.net"
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/health"]
+    "run_worker_first": ["/api/*", "/health", "/studio-config.js"]
   }
 }

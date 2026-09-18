@@ -1,10 +1,11 @@
 # Modal Notebook Studio
 
-A shareable browser workspace for launching JupyterLab on each user's own Modal account. The hosted website and its API run on **Deno Deploy's serverless runtime**. Visitors do not install Python, start a local web server, or provide a shared Modal key.
+A shareable browser workspace for launching JupyterLab on each user's own Modal account. **Cloudflare Worker serves the website frontend; Deno Deploy is the API intermediary for Modal.** Visitors do not install Python, start a local web server, or provide a shared Modal key.
 
-- **Website:** <https://modal-notebook-studio.manan.deno.net>
+- **Website:** <https://modal-notebook-studio-staging.bhansalimanan55.workers.dev>
+- **Deno API:** <https://modal-notebook-studio.manan.deno.net>
 - **Source:** <https://github.com/seenmttai/modal-notebook-studio>
-- **Optional local CLI/MCP controller:** `./run.sh` (needed only for the existing Python CLI/MCP features described below)
+- **Optional local CLI/MCP controller:** `./run.sh` (needed only for the Python CLI/MCP features described below)
 
 Each visitor connects a Modal API token in the browser. The token is stored in that browser's local storage and sent over HTTPS with API requests. The Deno app does not save user tokens, browser history, or uploaded file metadata in a database. Each Modal workspace gets its own named app and persistent Volume namespace.
 
@@ -12,14 +13,15 @@ Each visitor connects a Modal API token in the browser. The token is stored in t
 
 ```mermaid
 flowchart LR
-    B[Browser] -->|HTML, API, short-lived Modal token| D[Deno Deploy serverless app]
+    B[Browser] -->|HTML, CSS, JavaScript| W[Cloudflare Worker]
+    B -->|HTTPS API requests with this user's Modal token| D[Deno Deploy API]
     D -->|Modal control API using the visitor's token| M[Visitor's Modal workspace]
     M --> S[Modal Sandbox: JupyterLab and notebook compute]
     S <-->|mounted persistent workspace| V[Visitor's Modal Volume]
     B -->|GPU choice, session list, preferences, dataset index| L[Browser local storage]
 ```
 
-Deno Deploy starts application code to handle requests. The web host does not keep an always-on Notebook Studio container running. The Deno API does not run model code or allocate a GPU.
+Cloudflare Worker serves the static frontend. The browser calls Deno Deploy directly for Modal API operations; the Worker does not receive the Modal token. Deno accepts browser API requests only from the configured Worker origins. Neither web service runs notebook code or allocates a GPU.
 
 A notebook session itself **does** require a Modal Sandbox container. Modal runs that Sandbox in the workspace belonging to the connected token and bills its requested GPU, CPU, and RAM there. Starting a session also installs notebook packages inside that Sandbox; setup time uses the selected Modal resources. The site cannot run GPU work without this provider compute.
 
@@ -38,7 +40,7 @@ The website currently does not expose the stable kernel/version/benchmark-run AP
 
 ## Hosting and expected cost
 
-The hosted frontend and API use Deno Deploy's free tier while within the included limits. The published free plan currently includes monthly request, egress, CPU-time, memory-time, and app-count allowances. Exceeding an included free limit can pause service until reset; check [Deno Deploy pricing](https://deno.com/deploy/pricing) and the Deno console for current quotas. The serverless API does not need a paid always-on container.
+The frontend uses the existing Cloudflare Worker and its account's request/CPU allowances; the Deno API uses Deno Deploy quotas. These are separate services and usage is subject to each account's current plan and limits. Check [Cloudflare Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [Deno Deploy pricing](https://deno.com/deploy/pricing) for current allowances. Neither service keeps a notebook container running.
 
 Modal use is separate. Connecting a token performs a read-only credential check. Launching a notebook creates a billable Modal Sandbox and a named Volume in the user's Modal workspace. Volume storage may incur charges above the workspace's included allowance. The app does not know how much credit remains and cannot guarantee that a session stays within free credits.
 
@@ -50,38 +52,42 @@ Modal use is separate. Connecting a token performs a read-only credential check.
 | Session IDs and Jupyter links | This browser's `localStorage` | Jupyter links contain a bearer token; treat the browser profile as sensitive. |
 | Preferences, session history, dataset index, estimate limit | This browser's `localStorage` | Does not sync to another browser or device. Clearing site data removes the history and token. |
 | Notebook files and datasets | User's Modal Volume | Persists independently of browser storage. |
-| Website source and static assets | Deno Deploy | Public code/assets only; no Modal tokens or user database. |
+| Website source and static assets | Cloudflare Worker | Public code/assets only; no Modal tokens or user database. |
 
 The site sends credentials in HTTPS request headers or the one-time connection request body. It does not put a Modal API token in a URL. The API does not write token values to application logs or persistent storage. The Modal token is not shared with other visitors.
 
 Modal resources are named using a hash derived from the token ID so users get separate app/Volume namespaces. If you replace the token with a different token ID, the site derives a different namespace. Copy data in Modal before switching token IDs if you need to preserve the old Volume. Tokens from one Modal workspace still share that workspace's billing and account-level storage allowance.
 
-## Deploying the Deno website
+## Deploying the Deno API
 
-Requirements: Deno 2.x, Node/npm for copying frontend assets, and a Deno Deploy account. The Deno CLI stores authorization in the OS keyring. On headless Debian/Termux, use `scripts/with-deno-keyring.sh` to provide a D-Bus Secret Service keyring; `deploy:deno` uses this wrapper automatically. In this environment, the keyring has an empty passphrase and its file is protected by owner-only filesystem permissions, so the saved Deno login persists between CLI processes but is not encrypted at rest.
+Deno Deploy hosts the Modal API intermediary only; it does not serve the website frontend. The Deno CLI uses the OS keyring. On headless Debian/Termux, scripts/with-deno-keyring.sh provides a D-Bus Secret Service keyring, and the deploy script uses that wrapper. In this environment the keyring has an empty passphrase and is protected by owner-only filesystem permissions, so the saved login persists between CLI processes but is not encrypted at rest.
 
 From the repository root:
 
 ```sh
 cd worker
-npm run sync:assets
 deno task check
 deno task test
+DENO_BIN=/path/to/deno npm run deploy:deno
 ```
 
-The production app is `modal-notebook-studio` in the `manan` organization. Its organization and app slugs are recorded in `worker/deno.json`. The app has already been created; deploy future revisions with:
+The Deno app is modal-notebook-studio in the manan organization. Its app and organization are recorded in worker/deno.json; update them when deploying your own copy. The deploy script passes that config explicitly and preserves the Deno CLI login through the keyring wrapper. DENO_BIN is optional when deno is already on PATH. For local API development, run `PORT=8765 deno task start` from `worker/`; this starts the API only.
+
+## Deploying the Cloudflare Worker frontend
+
+The staging Worker serves the shareable website at <https://modal-notebook-studio-staging.bhansalimanan55.workers.dev>. Wrangler requires Node.js 22 or newer and a logged-in Cloudflare account.
 
 ```sh
-npm run deploy:deno
+cd worker
+npm install
+npm run deploy:staging
 ```
 
-The deploy script syncs the frontend, passes `worker/deno.json` explicitly to work around a Deno CLI config-loading bug, and runs the CLI through the keyring wrapper. Set `DENO_BIN` if Deno is not on `PATH`, and set `DENO_DEPLOY_APP` / `DENO_DEPLOY_ORG` if you deploy under different slugs (also update `worker/deno.json`). The app uses a dynamic Deno entrypoint; it is not a Docker or Modal deployment. The frontend files are copied from `notebook_studio/web/` into `worker/public/` by `sync:assets`, and those generated assets must be included in local Deploy uploads.
-
-For local development only, run `PORT=8765 deno task start` from `worker/` and open `http://localhost:8765`. Visitors to the deployed website do not need to run this command.
+deploy:staging copies notebook_studio/web/ into worker/public/, builds the Worker, and deploys wrangler.staging.jsonc. Use npm run deploy for the production Worker configured in wrangler.jsonc. Both configs set DENO_API_ORIGIN; the Worker exposes it through /studio-config.js, and the frontend calls that Deno origin directly. When deploying your own frontend/API pair, update the Worker DENO_API_ORIGIN and add the exact Worker origin to CORS_ALLOWED_ORIGINS in worker/deno/main.ts.
 
 ## Deno API routes
 
-All API routes are same-origin. Requests that operate on Modal resources include the visitor's token ID and secret in `X-Modal-Token-Id` and `X-Modal-Token-Secret` headers. The API creates a Modal SDK client for the request, closes it afterward, and does not persist credentials.
+The browser calls these routes cross-origin from the allow-listed Cloudflare Worker origin. CORS permits only those configured origins and required headers. Requests that operate on Modal resources include the visitor's token ID and secret in `X-Modal-Token-Id` and `X-Modal-Token-Secret` headers. The API creates a Modal SDK client for the request, closes it afterward, and does not persist credentials.
 
 | Route | Purpose |
 | --- | --- |

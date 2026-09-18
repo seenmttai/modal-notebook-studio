@@ -21,7 +21,7 @@
   let controlsReady = false;
   let toastTimer;
   let apiConnected = true;
-  let apiBase = "";
+  let apiBase = String(window.NOTEBOOK_STUDIO_API_BASE || "").replace(/\/+$/, "");
   function savedCredentials() { return readLocal(TOKEN_KEY, null); }
   function activeSession() { return localData.sessions.find((item) => ["starting", "launching", "running", "stopping"].includes(item.status)) || null; }
   function storeBrowserData() { writeLocal(DATA_KEY, localData); }

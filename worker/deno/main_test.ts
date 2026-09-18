@@ -44,22 +44,9 @@ Deno.test("dashboard returns GPU catalog without a local helper", async () => {
   );
 });
 
-Deno.test("the frontend is served from the dynamic application", async () => {
+Deno.test("the Deno service handles API requests, not frontend pages", async () => {
   const response = await handleRequest(new Request("https://studio.test/"));
-  assert(response.status === 200, "index should return HTTP 200");
-  assert(
-    (response.headers.get("content-type") || "").includes("text/html"),
-    "index should have HTML content type",
-  );
-  const html = await response.text();
-  assert(
-    html.includes("Connect Modal"),
-    "frontend should offer Modal connection",
-  );
-  assert(
-    !html.includes("Connect your local helper"),
-    "frontend should not ask for a local helper",
-  );
+  assert(response.status === 404, "Deno should not serve the website frontend");
 });
 
 Deno.test("invalid credentials are rejected before contacting Modal", async () => {
@@ -126,11 +113,42 @@ Deno.test("dataset upload without a session does not create a Modal Sandbox", as
   );
 });
 
-Deno.test("cross-origin API calls are refused", async () => {
+Deno.test("Cloudflare Worker origin passes API preflight and CORS checks", async () => {
+  const origin =
+    "https://modal-notebook-studio-staging.bhansalimanan55.workers.dev";
+  const preflight = await handleRequest(
+    new Request("https://api.studio.test/api/dashboard", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "GET",
+        "access-control-request-headers":
+          "x-modal-token-id,x-modal-token-secret",
+      },
+    }),
+  );
+  assert(preflight.status === 204, "Worker preflight should return HTTP 204");
+  assert(
+    preflight.headers.get("access-control-allow-origin") === origin,
+    "preflight should allow the exact Worker origin",
+  );
+  const response = await handleRequest(
+    new Request("https://api.studio.test/api/dashboard", {
+      headers: { origin },
+    }),
+  );
+  assert(response.status === 200, "Worker API requests should return HTTP 200");
+  assert(
+    response.headers.get("access-control-allow-origin") === origin,
+    "API responses should allow the exact Worker origin",
+  );
+});
+
+Deno.test("untrusted cross-origin API calls are refused", async () => {
   const response = await handleRequest(
     new Request("https://studio.test/api/dashboard", {
       headers: { origin: "https://attacker.test" },
     }),
   );
-  assert(response.status === 403, "cross-origin requests should be refused");
+  assert(response.status === 403, "untrusted origins should be refused");
 });

@@ -133,9 +133,39 @@ function getCredentials(request: Request): Credentials | null {
   return { tokenId, tokenSecret };
 }
 
-function assertSameOrigin(request: Request): Response | null {
+const CORS_ALLOWED_ORIGINS = new Set([
+  "https://modal-notebook-studio-staging.bhansalimanan55.workers.dev",
+  "https://modal-notebook-studio.bhansalimanan55.workers.dev",
+  "http://127.0.0.1:8765",
+  "http://localhost:8765",
+]);
+
+function isAllowedOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) {
+  return !origin || origin === new URL(request.url).origin ||
+    CORS_ALLOWED_ORIGINS.has(origin);
+}
+
+function withCors(request: Request, response: Response): Response {
+  const origin = request.headers.get("origin");
+  if (!origin) return response;
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set(
+    "access-control-allow-headers",
+    "content-type,x-modal-token-id,x-modal-token-secret,x-studio-session",
+  );
+  headers.set("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS");
+  headers.set("vary", "Origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function assertSameOrigin(request: Request): Response | null {
+  if (!isAllowedOrigin(request)) {
     return error("Cross-origin requests are not accepted.", 403);
   }
   return null;
@@ -785,61 +815,25 @@ async function handleApi(request: Request): Promise<Response> {
   return error("API route not found.", 404);
 }
 
-async function serveAsset(pathname: string): Promise<Response> {
-  const requested = pathname === "/"
-    ? "/index.html"
-    : decodeURIComponent(pathname);
-  if (
-    requested.includes("..") || requested.includes("\\") ||
-    requested.includes("\0")
-  ) return error("Not found.", 404);
-  const assetPath = new URL(`../public${requested}`, import.meta.url);
-  try {
-    const bytes = await Deno.readFile(assetPath);
-    const extension = requested.slice(requested.lastIndexOf("."));
-    return new Response(bytes, {
-      headers: {
-        "content-type": mimeTypes[extension] || "application/octet-stream",
-        "cache-control": requested === "/index.html"
-          ? "no-cache"
-          : "public, max-age=300",
-        "x-content-type-options": "nosniff",
-        "referrer-policy": "strict-origin-when-cross-origin",
-      },
-    });
-  } catch {
-    if (!requested.includes(".")) {
-      try {
-        const bytes = await Deno.readFile(
-          new URL("../public/index.html", import.meta.url),
-        );
-        return new Response(bytes, {
-          headers: {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-cache",
-          },
-        });
-      } catch { /* continue to 404 */ }
-    }
-    return error("Not found.", 404);
-  }
-}
-
 export async function handleRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/health") return json({ status: "ok" });
-  if (url.pathname.startsWith("/api/")) return handleApi(request);
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return error("Method not allowed.", 405);
+  if (url.pathname.startsWith("/api/")) {
+    if (!isAllowedOrigin(request)) {
+      return error("Cross-origin requests are not accepted.", 403);
+    }
+    if (request.method.toUpperCase() === "OPTIONS") {
+      return withCors(
+        request,
+        new Response(null, {
+          status: 204,
+          headers: { "allow": "GET, POST, PUT, DELETE, OPTIONS" },
+        }),
+      );
+    }
+    return withCors(request, await handleApi(request));
   }
-  const response = await serveAsset(url.pathname);
-  if (request.method === "HEAD") {
-    return new Response(null, {
-      status: response.status,
-      headers: response.headers,
-    });
-  }
-  return response;
+  return error("Not found.", 404);
 }
 
 if (import.meta.main) {

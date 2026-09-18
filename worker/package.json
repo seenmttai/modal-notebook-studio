@@ -12,7 +12,7 @@
     "deploy": "wrangler deploy --config wrangler.jsonc",
     "deploy:staging": "wrangler deploy --config wrangler.staging.jsonc --no-bundle",
     "types": "wrangler types --config wrangler.jsonc",
-    "deploy:deno": "npm run sync:assets && bash scripts/deploy-deno.sh"
+    "deploy:deno": "bash scripts/deploy-deno.sh"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260917.1",
