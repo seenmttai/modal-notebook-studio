@@ -26,5 +26,7 @@ dist/
 .wrangler/
 node_modules/
 worker/.dev.vars
-worker/public/
+# Include generated frontend assets in local Deno Deploy uploads.
+!worker/public/
+!worker/public/**
 worker/dist/

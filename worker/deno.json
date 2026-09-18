@@ -1,0 +1,30 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "modal": "npm:modal@0.10.1"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": [
+      "deno.ns",
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ]
+  },
+  "tasks": {
+    "check": "deno check deno/main.ts deno/main_test.ts",
+    "test": "deno test --allow-read=public --allow-env deno/main_test.ts",
+    "start": "deno run --allow-net --allow-env --allow-read=public deno/main.ts",
+    "sync-assets": "mkdir -p public && cp -R ../notebook_studio/web/. public/ && rm -rf public/downloads"
+  },
+  "deploy": {
+    "runtime": {
+      "type": "dynamic",
+      "entrypoint": "./deno/main.ts",
+      "cwd": "."
+    },
+    "org": "manan",
+    "app": "modal-notebook-studio"
+  }
+}

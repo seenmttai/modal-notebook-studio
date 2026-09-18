@@ -1,152 +1,147 @@
 # Modal Notebook Studio
 
-A personal, GPU-enabled JupyterLab workspace controlled from a browser, command line, or AI agent. The shared website is a static Cloudflare Worker; each user runs a small local controller that connects to that user's own Modal account and Volume.
+A shareable browser workspace for launching JupyterLab on each user's own Modal account. The hosted website and its API run on **Deno Deploy's serverless runtime**. Visitors do not install Python, start a local web server, or provide a shared Modal key.
 
-- **Hosted website:** <https://modal-notebook-studio-staging.bhansalimanan55.workers.dev>
-- **Download the local helper:** <https://modal-notebook-studio-staging.bhansalimanan55.workers.dev/downloads/notebook-studio-helper.zip>
+- **Website:** <https://modal-notebook-studio.manan.deno.net>
 - **Source:** <https://github.com/seenmttai/modal-notebook-studio>
+- **Optional local CLI/MCP controller:** `./run.sh` (needed only for the existing Python CLI/MCP features described below)
 
-> The website URL is shareable, but it is not a shared GPU service. Every user must run their own local controller and connect their own Modal credentials. Compute, storage, and billing belong to the Modal workspace selected by that user.
+Each visitor connects a Modal API token in the browser. The token is stored in that browser's local storage and sent over HTTPS with API requests. The Deno app does not save user tokens, browser history, or uploaded file metadata in a database. Each Modal workspace gets its own named app and persistent Volume namespace.
 
-## Contents
-
-- [Features](#features)
-- [Architecture and data flow](#architecture-and-data-flow)
-- [Quick start](#quick-start)
-- [Configuration](#configuration)
-- [Browser and data security](#browser-and-data-security)
-- [GPU sessions, storage, and budget guard](#gpu-sessions-storage-and-budget-guard)
-- [Training a model through MCP](#training-a-model-through-mcp)
-- [Command-line reference](#command-line-reference)
-- [MCP server reference](#mcp-server-reference)
-- [Kernel versions and benchmark runs](#kernel-versions-and-benchmark-runs)
-- [Observability and known limits](#observability-and-known-limits)
-- [Cloudflare Worker deployment](#cloudflare-worker-deployment)
-- [Development and tests](#development-and-tests)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-
-## Features
-
-- JupyterLab sessions on the GPU choices returned by the local controller, with configurable CPU, RAM, maximum runtime, and idle timeout.
-- An estimated maximum-cost display and an app-side reservation guard before a session starts.
-- A persistent per-Modal-workspace Volume for datasets, notebooks, models, checkpoints, outputs, and caches.
-- Dataset upload, listing, download, and deletion in the website, CLI, and MCP.
-- Workspace file operations from the CLI and MCP. The website's Storage page currently explains the workspace layout; it is informational rather than a file browser.
-- Stable kernel IDs, immutable numbered notebook versions, versioned attachments, a separate benchmark-run history, event/log streaming, structured status, and selective output downloads.
-- An AI-oriented CLI that emits JSON by default and an MCP server with tools, resources, and a benchmark-review prompt.
-- A public static frontend that does not need D1, R2, a server-side API, or a public tunnel to the user's controller.
-
-## Architecture and data flow
+## What runs where
 
 ```mermaid
 flowchart LR
-    B[User browser] -->|static HTML, CSS, JS| W[Cloudflare Worker]
-    B -->|direct localhost request, Basic Auth and CORS| H[Local Notebook Studio controller]
-    C[CLI or MCP process] -->|authenticated local HTTP| H
-    H -->|user's Modal credentials| M[Modal API]
-    M --> S[User's Modal Sandbox]
-    M --> V[User's Modal Volume]
-    S <-->|workspace mount| V
+    B[Browser] -->|HTML, API, short-lived Modal token| D[Deno Deploy serverless app]
+    D -->|Modal control API using the visitor's token| M[Visitor's Modal workspace]
+    M --> S[Modal Sandbox: JupyterLab and notebook compute]
+    S <-->|mounted persistent workspace| V[Visitor's Modal Volume]
+    B -->|GPU choice, session list, preferences, dataset index| L[Browser local storage]
 ```
 
-The Worker serves files and `/health`. It does not forward `/api` calls. The browser calls `http://127.0.0.1:8000` directly, so notebook links and user Modal credentials do not pass through Cloudflare. `/api/*` on the public Worker intentionally returns HTTP 410 with instructions to start the local helper.
+Deno Deploy starts application code to handle requests. The web host does not keep an always-on Notebook Studio container running. The Deno API does not run model code or allocate a GPU.
 
-The local controller authenticates browser, CLI, and MCP requests, maintains the local session and budget ledger, and uses the Modal SDK for Sandbox and Volume operations. A Modal API token is saved against the local login and encrypted in the local SQLite database. A username-derived namespace keeps this app's Modal app and Volume names distinct for different local logins in a shared controller.
+A notebook session itself **does** require a Modal Sandbox container. Modal runs that Sandbox in the workspace belonging to the connected token and bills its requested GPU, CPU, and RAM there. Starting a session also installs notebook packages inside that Sandbox; setup time uses the selected Modal resources. The site cannot run GPU work without this provider compute.
 
-## Quick start
+## Website features
 
-### Run from a Git clone
+- GPU picker with VRAM, published rate estimates, CPU and RAM selection, maximum runtime, and idle timeout.
+- Start and stop JupyterLab sessions through an encrypted Modal tunnel.
+- Session status, observed CPU/RAM metrics, Sandbox ID, and setup/Jupyter logs.
+- Dataset upload, list, and delete in the user's Modal Volume. Upload requires a running notebook Sandbox because the current Modal JavaScript SDK exposes Volume files through a mounted Sandbox. The hosted upload limit is 32 MiB per file; downloads through the API are limited to 16 MiB.
+- Informational Storage page for the Volume workspace layout.
+- Browser-local session history, dataset index, GPU preferences, and a monthly cost estimate.
 
-Requirements:
+The website's monthly estimate is a **browser-side planning aid**, not a Modal spending cap. It only knows about sessions tracked by that browser; it cannot read the account's free-credit balance or usage from other Modal apps. Its limit can be adjusted on the Usage page. Modal's dashboard and invoice remain authoritative.
 
-- Python 3.11 or newer.
-- A browser that can grant the hosted HTTPS page access to localhost. Recent Chrome and Chromium builds support this flow.
-- A Modal account and credentials if you want to launch compute.
+The website currently does not expose the stable kernel/version/benchmark-run API through its Deno backend. Those features are available through the existing Python API and its CLI/MCP tools when the optional local controller is running.
+
+## Hosting and expected cost
+
+The hosted frontend and API use Deno Deploy's free tier while within the included limits. The published free plan currently includes monthly request, egress, CPU-time, memory-time, and app-count allowances. Exceeding an included free limit can pause service until reset; check [Deno Deploy pricing](https://deno.com/deploy/pricing) and the Deno console for current quotas. The serverless API does not need a paid always-on container.
+
+Modal use is separate. Connecting a token performs a read-only credential check. Launching a notebook creates a billable Modal Sandbox and a named Volume in the user's Modal workspace. Volume storage may incur charges above the workspace's included allowance. The app does not know how much credit remains and cannot guarantee that a session stays within free credits.
+
+## Browser storage and token handling
+
+| Item | Stored in | Notes |
+| --- | --- | --- |
+| Modal token ID and secret | This browser's `localStorage` | Plain browser storage, not an encrypted password vault. Any script executing on this site in this browser profile could read it. Use a trusted browser profile and revoke a token in Modal if it is exposed. |
+| Session IDs and Jupyter links | This browser's `localStorage` | Jupyter links contain a bearer token; treat the browser profile as sensitive. |
+| Preferences, session history, dataset index, estimate limit | This browser's `localStorage` | Does not sync to another browser or device. Clearing site data removes the history and token. |
+| Notebook files and datasets | User's Modal Volume | Persists independently of browser storage. |
+| Website source and static assets | Deno Deploy | Public code/assets only; no Modal tokens or user database. |
+
+The site sends credentials in HTTPS request headers or the one-time connection request body. It does not put a Modal API token in a URL. The API does not write token values to application logs or persistent storage. The Modal token is not shared with other visitors.
+
+Modal resources are named using a hash derived from the token ID so users get separate app/Volume namespaces. If you replace the token with a different token ID, the site derives a different namespace. Copy data in Modal before switching token IDs if you need to preserve the old Volume. Tokens from one Modal workspace still share that workspace's billing and account-level storage allowance.
+
+## Deploying the Deno website
+
+Requirements: Deno 2.x, Node/npm for copying frontend assets, and a Deno Deploy account. The Deno CLI stores authorization in the OS keyring. On headless Debian/Termux, use `scripts/with-deno-keyring.sh` to provide a D-Bus Secret Service keyring; `deploy:deno` uses this wrapper automatically. In this environment, the keyring has an empty passphrase and its file is protected by owner-only filesystem permissions, so the saved Deno login persists between CLI processes but is not encrypted at rest.
+
+From the repository root:
 
 ```sh
-git clone https://github.com/seenmttai/modal-notebook-studio.git
-cd modal-notebook-studio
+cd worker
+npm run sync:assets
+deno task check
+deno task test
+```
+
+The production app is `modal-notebook-studio` in the `manan` organization. Its organization and app slugs are recorded in `worker/deno.json`. The app has already been created; deploy future revisions with:
+
+```sh
+npm run deploy:deno
+```
+
+The deploy script syncs the frontend, passes `worker/deno.json` explicitly to work around a Deno CLI config-loading bug, and runs the CLI through the keyring wrapper. Set `DENO_BIN` if Deno is not on `PATH`, and set `DENO_DEPLOY_APP` / `DENO_DEPLOY_ORG` if you deploy under different slugs (also update `worker/deno.json`). The app uses a dynamic Deno entrypoint; it is not a Docker or Modal deployment. The frontend files are copied from `notebook_studio/web/` into `worker/public/` by `sync:assets`, and those generated assets must be included in local Deploy uploads.
+
+For local development only, run `PORT=8765 deno task start` from `worker/` and open `http://localhost:8765`. Visitors to the deployed website do not need to run this command.
+
+## Deno API routes
+
+All API routes are same-origin. Requests that operate on Modal resources include the visitor's token ID and secret in `X-Modal-Token-Id` and `X-Modal-Token-Secret` headers. The API creates a Modal SDK client for the request, closes it afterward, and does not persist credentials.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /health` | Health check without Modal credentials. |
+| `GET /api/dashboard` | GPU catalog, resource choices, upload limit, and local-estimate defaults. |
+| `POST /api/modal-credentials` | Verify a token with a read-only Modal SDK call; does not save it. |
+| `POST /api/sessions` | Create a GPU Sandbox with JupyterLab and mount the user's Volume. |
+| `GET /api/sessions/{id}/status` | Structured lifecycle and resource status. |
+| `GET /api/sessions/{id}/logs` and `/events` | Read bounded setup/Jupyter logs and status events. |
+| `POST /api/sessions/{id}/stop` | Terminate the Sandbox. |
+| `GET/POST /api/datasets` and `DELETE /api/datasets/{id}` | List, upload, and delete files in the mounted Volume; upload requires an active session. |
+| `GET /api/storage`, `PUT /api/storage/files`, `GET /api/storage/download`, `DELETE /api/storage/files` | Basic mounted-Volume file operations. |
+
+Workspace paths are restricted to `/workspace/notebooks`, `datasets`, `models`, `checkpoints`, `outputs`, `caches`, and `kernels`. The API limits one upload to 32 MiB and one download to 16 MiB.
+
+## Optional Python CLI and MCP
+
+The repository also contains an AI-oriented CLI and MCP server for stable kernel IDs, immutable notebook versions, benchmark runs, event/status queries, selective output downloads, sessions, and storage operations. Those existing clients call the Python FastAPI controller. They are optional and are **not required for using the hosted website**.
+
+Start that controller only when you want to use those existing CLI/MCP tools:
+
+```sh
 ./run.sh
 ```
 
-The first run creates `.venv`, installs the web app, Modal SDK, MCP SDK, and development test dependencies, and creates a private `.env` if one does not exist. It generates a random local app password and a random credential-encryption key, sets the file mode to `0600`, then starts the controller on `127.0.0.1:8000`.
+It runs on the local device, not as a cloud service, and does not host the shared website. The CLI and MCP features are not yet wired to the Deno Deploy API. Do not expose the Python controller publicly; keep it bound to loopback. See the CLI and MCP source/documentation in `notebook_studio/cli.py`, `notebook_studio/mcp_server.py`, and the Python API in `notebook_studio/main.py`.
 
-Open <http://127.0.0.1:8000> for a same-origin local experience. The default local username is `local`; the generated password is the `APP_PASSWORD` value in your private `.env`. Alternatively, open the [hosted website](https://modal-notebook-studio-staging.bhansalimanan55.workers.dev), choose **Connect local helper**, and enter the helper URL, username, and password. Allow the browser's local-network permission prompt for the site.
+## Testing
 
-In the website, open **Account → Connect Modal** and enter your Modal token. The controller verifies it and stores an encrypted copy locally. You can then choose a GPU on Overview and launch a session.
+Deno route tests make no Modal API calls that allocate resources:
 
-### Run from the helper ZIP
+```sh
+cd worker
+deno task check
+deno task test
+node --check ../notebook_studio/web/static/app.js
+```
 
-Download the [helper ZIP](https://modal-notebook-studio-staging.bhansalimanan55.workers.dev/downloads/notebook-studio-helper.zip), extract it, and run `./run.sh` from the extracted directory. It contains source and setup files, not `.env`, a database, credentials, or a Python virtual environment. Python 3.11+ and network access for package installation are required.
+The deployed UI can be smoke-tested in headless Chromium. Tests should use a temporary browser profile and fake tokens for navigation and local-storage checks. Credential verification uses the read-only `getImageBuilderVersion` Modal call. Do not test a launch path unless you intend to create a billable Sandbox in the connected Modal workspace.
 
-### Using it with friends
+Python API, CLI, MCP, and kernel tests run with:
 
-Share the hosted website or this repository. Each friend should use a separate helper directory on their own device, start it with `./run.sh`, and connect a Modal account they control. Do not share `.env`, the SQLite database, or a Modal token. Tokens from the same Modal workspace use that workspace's shared storage and billing allowance; separate Modal accounts keep those separate.
+```sh
+cd ..
+.venv/bin/pytest
+```
 
-## Configuration
+## Security and operating limits
 
-`run.sh` creates `.env` from `.env.example`. Edit `.env` while the controller is stopped, then restart it for changes to take effect.
+- Never put a Modal token in source code, a URL, a screenshot, or a public issue. Use Account settings and revoke any exposed token in Modal.
+- A browser's `localStorage` is convenient per-device storage, not protection from malicious JavaScript or anyone using that browser profile.
+- The Deno app has no shared login or user database. Visitors use their own Modal token; each account pays for its own Modal compute and storage.
+- The monthly browser estimate is not a provider-enforced account budget. A user can exceed it through another browser, another Modal app, or direct API requests.
+- Modal image packages are installed during the notebook Sandbox startup. That setup consumes the selected session's runtime and resources.
+- Volume data persists after a session stops. Forgetting a token from the browser does not delete or revoke Modal resources.
+- Modal's JavaScript SDK is in beta. Recheck its release notes when updating it: <https://modal.com/docs/sdk/js/releases>.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `APP_PASSWORD` | Generated on first run | Password for the local controller. Keep it private. |
-| `HOST` | `127.0.0.1` | Bind address. Keep loopback for the hosted-browser workflow; do not bind to `0.0.0.0` to make the Worker work. |
-| `PORT` | `8000` | Local controller port. The hosted page defaults to `http://127.0.0.1:8000`. |
-| `APP_ALLOWED_ORIGINS` | Staging Worker origin | Comma-separated exact browser origins allowed to call the controller cross-origin. For a different Worker hostname, add its exact HTTPS origin and restart the controller. |
-| `MODAL_ENABLED` | `false` | Enables configured single-user Modal access modes. Normally leave false and connect the user's token in Account. |
-| `MODAL_APP_NAME` | `personal-notebook-studio` | Base name for the app's Modal Sandbox resources. |
-| `MODAL_VOLUME_NAME` | `personal-notebook-studio-workspace` | Base name for the persistent Modal Volume. |
-| `MONTHLY_COMPUTE_BUDGET_USD` | `30` | App-side estimated compute allowance for this local controller. |
-| `BUDGET_SAFETY_BUFFER_USD` | `1` | Amount reserved from the configured app-side allowance. |
-| `MAX_SESSION_HOURS` | `8` | Maximum requested session duration; the app clamps this to 24 hours. |
-| `DEFAULT_IDLE_TIMEOUT_MINUTES` | `15` | Default Sandbox idle timeout. |
-| `UPLOAD_LIMIT_GIB` | `4` | Maximum size of one dataset upload. |
-| `DATABASE_PATH` | `./data/studio.sqlite3` | Local SQLite database path. Keep this file private. |
-| `APP_PUBLIC` | `false` | Controls whether login authentication is required. Do not enable for a network-exposed controller without deliberately configuring access. |
-| `MULTI_USER_MODE` | `false` | Enables the controller's optional local multi-user mode. A separate local helper per friend is simpler and safer for personal use. |
-| `MODAL_CREDENTIAL_ENCRYPTION_KEY` | Generated on first run | Key used to encrypt saved Modal credentials. Back it up securely; losing it prevents decrypting stored credentials. |
-| `ADMIN_PROVISIONING_KEY` | Empty | Optional key for the local user-provisioning endpoint. Do not publish it. |
+## Local controller quick start
 
-The CLI and MCP client read `APP_PASSWORD` from `.env` and map it to `NOTEBOOK_STUDIO_PASSWORD` in the process. When the CLI/MCP runs outside the project directory, set `NOTEBOOK_STUDIO_URL`, `NOTEBOOK_STUDIO_USERNAME`, and `NOTEBOOK_STUDIO_PASSWORD` explicitly.
-
-## Browser and data security
-
-| Data | Location | Notes |
-| --- | --- | --- |
-| Static frontend | Cloudflare Worker assets | Public HTML, CSS, and JavaScript only. No API credentials or user database. |
-| GPU/resource preferences | Browser `localStorage` | Local to that browser profile; does not sync between devices. |
-| Helper URL and username | Browser `localStorage` | Used to reconnect to localhost. The password is cleared from the form after connecting and is not saved there. |
-| Safe dashboard snapshot | Browser `localStorage` | Active session links, notebook tokens, and Sandbox IDs are removed before caching. It is a convenience snapshot, not authoritative billing data. |
-| App password and encryption key | Local `.env` | Generated locally by `run.sh`. Never commit or send this file. |
-| Session history, reservations, dataset metadata | Local SQLite | Kept on the controller machine. Excluded from the helper archive and Git. |
-| Modal API credentials | Local SQLite, encrypted | Encryption uses `MODAL_CREDENTIAL_ENCRYPTION_KEY`. The hosted Worker does not receive the token. |
-| Dataset and model bytes | User's Modal Volume | Persistent storage is billed and governed by the user's Modal workspace. |
-| Notebook run outputs | User's Modal Volume | Listed and downloaded through the local controller. |
-
-The browser talks directly to localhost. For the hosted page, the browser must allow local-network access and the exact Worker origin must be in `APP_ALLOWED_ORIGINS`. CORS and Basic Auth are both required. The controller should remain bound to loopback for this setup.
-
-The MCP `modal_account_connect` tool accepts token values as arguments. MCP clients may retain tool arguments in transcripts or logs. Prefer the website form or the CLI's hidden prompt for token entry; use the MCP token tool only with a host whose handling of sensitive tool arguments you trust.
-
-## GPU sessions, storage, and budget guard
-
-The GPU catalog and prices are returned by the local controller. Use `notebook-studio gpus` or the website's Overview and Usage views to see current choices. A session selects one GPU plus CPU and RAM. The app estimates the maximum session cost, reserves that amount before launch, and asks Modal for a maximum runtime and idle timeout.
-
-This budget guard is an **app-side estimate**, not a Modal-enforced spending cap. It only tracks sessions launched through this controller. It cannot see other Modal apps, exact free-credit balance, Volume storage, later price changes, or all billing adjustments. Modal's dashboard and invoice are authoritative. Check them before and after GPU work.
-
-The app creates a named Modal Volume for the configured account/namespace and mounts it at `/workspace`. Common directories are:
-
-- `/workspace/notebooks`
-- `/workspace/datasets`
-- `/workspace/models`
-- `/workspace/checkpoints`
-- `/workspace/outputs`
-- `/workspace/caches`
-- `/workspace/kernels`
-
-Dataset uploads go under `/workspace/datasets`; uploaded file metadata is kept in the local database. Generic Storage operations are restricted to the approved workspace roots above. A file deletion removes it from the Volume; dataset deletion also removes its dataset record.
-
-A benchmark run executes inside an already-running Sandbox. Its compute time is part of that session's provider usage; it does not create a separate GPU allocation. A benchmark timeout cannot extend the remaining lifetime of the active Sandbox.
+The hosted website works without a local server. The Python controller is only needed for the optional CLI and MCP clients. Running `./run.sh` from the repository root creates a Python virtual environment, installs the project dependencies, initializes private local settings, and starts the API on `127.0.0.1:8000`. Keep it bound to loopback.
 
 ## Training a model through MCP
 
@@ -313,55 +308,3 @@ Additional limits:
 - The MCP event tools return bounded slices; they are not an indefinite push stream.
 - Modal Volume storage and provider billing are controlled by the connected Modal workspace.
 - Local database loss removes this controller's session/account metadata. Back up `.env` and the database securely if you need recovery; never publish them.
-
-## Cloudflare Worker deployment
-
-The public staging site is <https://modal-notebook-studio-staging.bhansalimanan55.workers.dev>. The static source is `notebook_studio/web`; the Worker entry point is `worker/src/index.ts`. `worker/public/` is generated at deploy time and intentionally excluded from Git.
-
-To deploy your own Worker, install Wrangler dependencies and authenticate to Cloudflare:
-
-```sh
-cd worker
-npm install
-npx wrangler login
-npm run deploy:staging
-```
-
-`deploy:staging` runs asset sync, packages a credential-free helper ZIP, compiles TypeScript, and deploys `wrangler.staging.jsonc`. `npm run deploy` uses `wrangler.jsonc` for the non-staging Worker. The deployed Worker serves static assets and `/health`; it returns HTTP 410 for `/api/*`.
-
-If you use a different Worker hostname, add the exact HTTPS origin to `APP_ALLOWED_ORIGINS` in each local helper's `.env` and restart that helper. The helper must still bind to loopback. Browser local-network permission must be granted for each browser profile/device.
-
-The Worker has no D1 or R2 binding. The helper ZIP builder is `worker/scripts/build_helper.py`; it packages source and documentation while excluding `.env`, SQLite databases, `.dev.vars`, virtual environments, Wrangler caches, and generated Worker assets.
-
-## Development and tests
-
-Install the development dependencies and run the tests:
-
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev,modal,mcp]'
-python -m pytest -q
-```
-
-The automated suite uses temporary databases and mocked Modal providers; it does not launch GPU Sandboxes or require Modal credentials. It covers authentication and origin checks, storage/path validation, immutable kernel versions, benchmark history and outputs, CLI behavior, MCP tools, observability, and token-redaction behavior.
-
-The hosted frontend was also exercised in headless Chromium against the deployed Worker and a temporary local controller. That pass covered all six views, GPU/resource selection, preference persistence, dataset rejection without Modal credentials, helper reconnection, password clearing, and ensuring active-session links/Sandbox IDs do not enter browser storage.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Browser says it cannot reach the local helper | Start `./run.sh`; use `http://127.0.0.1:8000`; allow the browser's local-network prompt. |
-| `401 Authentication required` | Use username `local` and the private `APP_PASSWORD` from `.env`; restart after changing it. |
-| Browser gets a CORS error | Add the exact Worker origin, including scheme and hostname, to `APP_ALLOWED_ORIGINS`; restart the helper. |
-| Website says the Modal account is disconnected | Open Account and connect a token. A successful local-controller login is separate from Modal account connection. |
-| Session start is rejected for budget | Check Usage, reduce GPU/CPU/RAM/runtime, or adjust the app-side estimate limit. Also verify real Modal credits in Modal's dashboard. |
-| Dataset upload is rejected | Check that a Modal token is connected, the file is nonempty, and it is below `UPLOAD_LIMIT_GIB`. |
-| Notebook or benchmark fails | Inspect structured status, failure reason, `sessions logs` or `kernel logs`, and run events. Verify required Python packages and Volume paths. |
-| MCP cannot find an uploaded file | The path is resolved on the machine running the MCP server. Move the file there or run MCP locally. |
-| Worker `/api/*` returns 410 | Expected: only the static frontend is on the Worker. Start the local helper and connect the browser to localhost. |
-
-## License
-
-No license file is included. A public GitHub repository is visible to everyone, but public visibility alone does not grant permission to reuse, redistribute, or publish modified copies. Add an explicit license before inviting others to reuse the source.
