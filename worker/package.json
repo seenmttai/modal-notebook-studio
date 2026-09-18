@@ -1,0 +1,21 @@
+{
+  "name": "modal-notebook-studio-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:assets": "mkdir -p public && cp -R ../notebook_studio/web/. public/ && python3 scripts/build_helper.py",
+    "build:worker": "tsc --project tsconfig.json --noEmit false --outDir dist --pretty false",
+    "predev": "npm run sync:assets",
+    "predeploy": "npm run sync:assets",
+    "predeploy:staging": "npm run sync:assets && npm run build:worker",
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "deploy:staging": "wrangler deploy --config wrangler.staging.jsonc --no-bundle",
+    "types": "wrangler types --config wrangler.jsonc"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260917.1",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.133.0"
+  }
+}

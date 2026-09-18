@@ -1,0 +1,30 @@
+# Local credentials and settings
+.env
+.env.*
+!.env.example
+.worker-secret
+
+# Python environments, caches, and package output
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Local database and runtime data
+/data/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+
+# Wrangler state, local bindings, dependencies, and generated assets
+.wrangler/
+node_modules/
+worker/.dev.vars
+worker/public/
+worker/dist/

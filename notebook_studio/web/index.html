@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>Notebook Studio</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#overview" aria-label="Notebook Studio home">
+        <span class="brand-mark">n<span>_</span></span>
+        <span class="brand-name">notebook<span>studio</span></span>
+      </a>
+      <div class="side-label">WORKSPACE</div>
+      <nav class="nav" aria-label="Main navigation">
+        <a class="nav-link active" href="#overview" data-view="overview"><span class="nav-icon">◫</span>Overview</a>
+        <a class="nav-link" href="#notebooks" data-view="notebooks"><span class="nav-icon">▤</span>Notebooks</a>
+        <a class="nav-link" href="#datasets" data-view="datasets"><span class="nav-icon">▧</span>Datasets</a>
+        <a class="nav-link" href="#storage" data-view="storage"><span class="nav-icon">▱</span>Storage</a>
+        <a class="nav-link" href="#usage" data-view="usage"><span class="nav-icon">⌁</span>Usage &amp; limits</a>
+        <a class="nav-link" href="#account" data-view="account"><span class="nav-icon">◎</span>Account</a>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-note">
+        <span class="note-dot"></span>
+        <div><strong>Your isolated account</strong><small>Uses your own Modal workspace</small></div>
+      </div>
+      <div class="sidebar-foot">PERSONAL INSTANCE <span>v0.1</span></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb"><span>Workspace</span><b>/</b><strong id="crumb-current">Overview</strong></div>
+        <div class="top-actions">
+          <span class="provider-badge"><i></i> <span id="modal-state">Modal disabled</span></span>
+          <span id="helper-status" class="helper-status">Local app</span>
+          <button class="button button-quiet hidden" id="connect-local-button" type="button">Connect local helper</button>
+          <button class="icon-button" id="refresh-button" title="Refresh status" aria-label="Refresh status">↻</button>
+          <div class="avatar" title="Your account" id="account-avatar">U</div>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="view active" id="view-overview">
+          <div class="page-heading">
+            <div><div class="eyebrow">YOUR COMPUTE, UNDER CONTROL</div><h1>Good work starts here<span class="heading-dot">.</span></h1><p>Launch a notebook with a clear time cap and a cost reservation.</p></div>
+            <div class="today-chip"><span class="live-dot"></span>Private workspace</div>
+          </div>
+
+          <div class="overview-grid">
+            <article class="card budget-card">
+              <div class="card-topline"><div><div class="eyebrow">THIS MONTH'S COMPUTE</div><h2 id="budget-headline">Budget guard is ready</h2></div><span class="soft-icon">⌁</span></div>
+              <div class="budget-numbers"><strong id="budget-used">$0.00</strong><span>of <b id="budget-limit">$29.00</b> app limit</span></div>
+              <div class="meter"><span id="budget-meter"></span></div>
+              <div class="budget-foot"><span id="budget-reserved">$0.00 reserved</span><span id="budget-available">$29.00 available</span></div>
+              <p class="fine-print">Includes a safety buffer. This estimate tracks sessions launched here; check Modal for actual billing.</p>
+            </article>
+            <article class="card session-card" id="active-session-card">
+              <div class="card-topline"><div><div class="eyebrow">NOTEBOOK SESSION</div><h2 id="session-heading">No session running</h2></div><span class="session-status idle" id="session-status">IDLE</span></div>
+              <div id="active-session-content" class="empty-session"><span class="empty-mark">⌘</span><div><strong>Pick a GPU to get started</strong><span>Your files will stay in persistent storage.</span></div></div>
+              <div class="session-actions"><button class="button button-quiet" id="open-notebook" disabled>Open notebook <span>↗</span></button><button class="button button-danger hidden" id="stop-session">Stop session</button></div>
+            </article>
+          </div>
+
+          <section class="section-block" id="notebooks-section">
+            <div class="section-heading"><div><div class="eyebrow">NEW NOTEBOOK</div><h2>Choose your compute</h2><p>One GPU per session. CPU and RAM are billed separately from GPU time.</p></div><a class="text-link" href="#usage" data-view="usage">See rate details <span>→</span></a></div>
+            <div class="gpu-grid" id="gpu-grid" aria-label="GPU options"></div>
+            <div class="launch-panel card">
+              <div class="launch-controls">
+                <label>CPU cores<select id="cpu-select"></select></label>
+                <label>System RAM<select id="ram-select"></select></label>
+                <label>Max session<select id="hours-select"></select></label>
+                <label>Idle timeout<select id="idle-select"></select></label>
+              </div>
+              <div class="launch-bottom">
+                <div class="estimate"><span>ESTIMATED MAX</span><strong id="launch-estimate">Select a GPU</strong><small id="launch-rate">Rates include Sandbox CPU and RAM.</small></div>
+                <button class="button button-primary" id="launch-button" disabled>Launch notebook <span>→</span></button>
+              </div>
+              <div class="launch-message" id="launch-message" role="status"></div>
+            </div>
+          </section>
+
+          <section class="section-block recent-block">
+            <div class="section-heading"><div><div class="eyebrow">RECENT ACTIVITY</div><h2>Recent sessions</h2></div><a class="text-link" href="#usage" data-view="usage">View usage <span>→</span></a></div>
+            <div class="table-wrap card"><table><thead><tr><th>STATUS</th><th>GPU</th><th>RESOURCES</th><th>MAX TIME</th><th>EST. COST</th></tr></thead><tbody id="recent-sessions"><tr><td colspan="5" class="table-empty">No sessions yet. Your first one will show up here.</td></tr></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-notebooks">
+          <div class="page-heading compact-heading"><div><div class="eyebrow">INTERACTIVE COMPUTE</div><h1>Notebooks<span class="heading-dot">.</span></h1><p>JupyterLab runs in an isolated Modal Sandbox and mounts your persistent workspace.</p></div></div>
+          <div class="card notebook-info"><div class="large-mark">▤</div><div><h2>JupyterLab on demand</h2><p>Choose a GPU on Overview, or use the active session below. Each launch has a hard runtime cap and an idle timeout.</p><a href="#overview" data-view="overview" class="text-link">Choose compute <span>→</span></a></div></div>
+          <article class="card notebook-current"><div class="section-heading"><div><div class="eyebrow">CURRENT SESSION</div><h2 id="notebook-current-title">No active notebook</h2></div><span class="session-status idle" id="notebook-current-status">IDLE</span></div><div id="notebook-current-body" class="empty-notebook">Launch a session to see its connection and stop controls here.</div></article>
+          <div class="callout"><span>i</span><p>The notebook is available through an encrypted Modal tunnel with a random Jupyter token. Treat its URL like a password. GPU Sandboxes can be preempted, so save checkpoints to the persistent Volume.</p></div>
+        </section>
+
+        <section class="view" id="view-datasets">
+          <div class="page-heading compact-heading"><div><div class="eyebrow">BRING YOUR DATA</div><h1>Datasets<span class="heading-dot">.</span></h1><p>Upload a file into your persistent Modal Volume, then open it from JupyterLab.</p></div></div>
+          <div class="upload-card card" id="drop-zone"><input type="file" id="file-input" hidden><div class="upload-icon">↑</div><h2>Drop a dataset here</h2><p>or <button id="choose-file" class="inline-button">browse files</button></p><small id="upload-hint">Uploads go to <code>/workspace/datasets/</code>. Limit: <span id="upload-limit">4 GB</span> per file.</small><div class="upload-progress hidden"><span id="upload-progress-fill"></span></div><div id="upload-message" role="status"></div></div>
+          <div class="section-heading dataset-list-heading"><div><div class="eyebrow">PERSISTENT VOLUME</div><h2>Your datasets <span class="count-pill" id="dataset-count">0</span></h2></div><button class="button button-quiet" id="refresh-datasets">Refresh list <span>↻</span></button></div>
+          <div class="dataset-list card" id="dataset-list"><div class="empty-dataset"><span>▧</span><strong>No uploaded datasets yet</strong><small>Files you upload here will persist between sessions.</small></div></div>
+        </section>
+
+        <section class="view" id="view-storage">
+          <div class="page-heading compact-heading"><div><div class="eyebrow">PERSISTENT FILES</div><h1>Storage<span class="heading-dot">.</span></h1><p>A Modal Volume mounted at <code>/workspace</code> keeps files between notebook sessions.</p></div></div>
+          <div class="storage-grid">
+            <article class="card storage-folder"><span class="folder-icon">▤</span><div><strong>notebooks</strong><small>Your .ipynb files</small><code>/workspace/notebooks</code></div><span class="folder-arrow">↗</span></article>
+            <article class="card storage-folder"><span class="folder-icon">▧</span><div><strong>datasets</strong><small>Uploaded and prepared data</small><code>/workspace/datasets</code></div><span class="folder-arrow">↗</span></article>
+            <article class="card storage-folder"><span class="folder-icon">◈</span><div><strong>models</strong><small>Weights and model files</small><code>/workspace/models</code></div><span class="folder-arrow">↗</span></article>
+            <article class="card storage-folder"><span class="folder-icon">▦</span><div><strong>checkpoints</strong><small>Training checkpoints</small><code>/workspace/checkpoints</code></div><span class="folder-arrow">↗</span></article>
+            <article class="card storage-folder"><span class="folder-icon">◫</span><div><strong>outputs</strong><small>Exports and generated files</small><code>/workspace/outputs</code></div><span class="folder-arrow">↗</span></article>
+            <article class="card storage-folder"><span class="folder-icon">⌘</span><div><strong>caches</strong><small>Reusable package and model caches</small><code>/workspace/caches</code></div><span class="folder-arrow">↗</span></article>
+          </div>
+          <div class="callout"><span>i</span><p>Deleting a dataset from this page removes that uploaded file from the Volume. Other workspace files are managed in JupyterLab. Volume storage charges are separate from compute.</p></div>
+        </section>
+
+        <section class="view" id="view-usage">
+          <div class="page-heading compact-heading"><div><div class="eyebrow">COST VISIBILITY</div><h1>Usage &amp; limits<span class="heading-dot">.</span></h1><p>Pre-launch reservations prevent this app from knowingly scheduling over its configured estimate.</p></div></div>
+          <div class="usage-grid">
+            <article class="card usage-main"><div class="eyebrow">APP-MANAGED BUDGET · <span id="usage-month">—</span></div><div class="budget-numbers"><strong id="usage-used">$0.00</strong><span>estimated of <b id="usage-limit">$29.00</b></span></div><div class="meter"><span id="usage-meter"></span></div><div class="budget-foot"><span id="usage-reserved">$0.00 reserved</span><span id="usage-available">$29.00 available</span></div><div class="usage-warning" id="usage-notice">This estimate only includes sessions launched by this app.</div></article>
+            <article class="card usage-side"><div class="eyebrow">GUARDRAILS</div><div class="guard-row"><span class="guard-check">✓</span><div><strong>Pre-launch reservation</strong><small>Maximum session cost is reserved before the GPU starts.</small></div></div><div class="guard-row"><span class="guard-check">✓</span><div><strong>Hard runtime ceiling</strong><small>Each Sandbox receives a provider-side maximum lifetime.</small></div></div><div class="guard-row"><span class="guard-check">✓</span><div><strong>Idle shutdown</strong><small>Inactive sessions are stopped after your selected timeout.</small></div></div></article>
+          </div>
+          <div class="section-heading rate-heading"><div><div class="eyebrow">AVAILABLE GPU TYPES</div><h2>Rates &amp; memory</h2><p>GPU rates shown per hour, plus 4 CPU cores and 32 GiB Sandbox RAM. One GPU per session.</p></div></div>
+          <div class="rate-table card"><table><thead><tr><th>GPU</th><th>VRAM</th><th>GPU RATE / HR</th><th>EST. TOTAL / HR</th><th></th></tr></thead><tbody id="rate-list"></tbody></table></div>
+          <div class="footnote">Rates are snapshots from Modal's published on-demand pricing. The dashboard does not read your provider invoice, other Modal apps, storage usage, or later price changes. Set this budget to the credit actually available to your account. Modal billing is authoritative.</div>
+        </section>
+
+        <section class="view" id="view-account">
+          <div class="page-heading compact-heading"><div><div class="eyebrow">YOUR PROVIDER ACCOUNT</div><h1>Account<span class="heading-dot">.</span></h1><p>Connect your own Modal workspace so its compute and Volume usage are billed to your account.</p></div></div>
+          <article class="card account-panel">
+            <div class="account-status-row"><div><div class="eyebrow">MODAL CONNECTION</div><h2 id="account-connection-title">Not connected</h2><p id="account-connection-copy">Your API token is encrypted before it is saved. It is never shown back after saving.</p></div><span class="connection-pill" id="account-connection-pill">DISCONNECTED</span></div>
+            <form id="modal-credentials-form" class="account-form">
+              <label>Modal token ID<input type="text" id="modal-token-id" autocomplete="off" spellcheck="false" required placeholder="ak-…"></label>
+              <label>Modal token secret<input type="password" id="modal-token-secret" autocomplete="new-password" required placeholder="Paste the token secret"></label>
+              <div class="account-actions"><button class="button button-primary" id="connect-modal-button" type="submit">Connect Modal <span>→</span></button><button class="button button-quiet hidden" id="disconnect-modal-button" type="button">Forget saved token</button></div>
+              <div class="launch-message" id="account-message" role="status"></div>
+            </form>
+          </article>
+          <div class="callout"><span>i</span><p>Each login gets a separate app budget and a separately named Modal Volume under the connected workspace. The included 1 TiB storage allowance is shared by everything in that Modal workspace. For each friend to get their own allowance, they need to connect a token from their own Modal workspace. Revoke an API token from Modal’s dashboard if it was exposed; forgetting it here does not revoke it at Modal.</p></div>
+          <article class="card account-panel"><div class="eyebrow">SHARED SITE ACCESS</div><h2 id="account-username">Signed in</h2><p>Your notebook sessions, uploaded datasets, and app-side usage history are isolated from other logins.</p></article>
+        </section>
+
+        <footer class="footer"><span>Notebook Studio</span><span>Per-user Modal workspaces · JupyterLab</span></footer>
+      </div>
+    </main>
+  </div>
+  <div class="helper-overlay hidden" id="helper-overlay">
+    <section class="helper-dialog" role="dialog" aria-modal="true" aria-labelledby="helper-title">
+      <div class="eyebrow">YOUR BROWSER · YOUR MODAL ACCOUNT</div>
+      <h2 id="helper-title">Connect your local helper</h2>
+      <p>The shared Worker hosts only this page. Download the helper, extract it on this device, and run <code>./run.sh</code>. Then connect to its local app. Your browser data stays here; GPU files go to your own Modal Volume.</p>
+      <a class="button button-quiet helper-download" href="/downloads/notebook-studio-helper.zip" download>Download local helper</a>
+      <label>Local helper URL<input id="helper-url" type="url" value="http://127.0.0.1:8000" spellcheck="false"></label>
+      <label>Local app username<input id="helper-username" type="text" value="local" autocomplete="username"></label>
+      <label>Local app password<input id="helper-password" type="password" autocomplete="current-password"></label>
+      <button class="button button-primary" id="helper-connect" type="button">Connect local helper</button>
+      <div id="helper-message" class="helper-message" role="status"></div>
+      <small id="helper-cache-note" class="helper-cache-note"></small>
+      <div class="helper-footnote">The password is used for this tab only. Your browser may ask permission for this site to connect to localhost.</div>
+    </section>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
