@@ -45,7 +45,7 @@
     return data;
   }
   function rememberPreferences() {
-    writeLocal(PREFS_KEY, {
+    Object.assign(preferences, {
       gpu: selectedGpu,
       cpu: Number($("#cpu-select").value || 4),
       ram: Number($("#ram-select").value || 32),
@@ -53,6 +53,7 @@
       idle: Number($("#idle-select").value || 15),
       monthly_estimate_limit: Number($("#budget-limit-setting").value || preferences.monthly_estimate_limit || 29),
     });
+    writeLocal(PREFS_KEY, preferences);
   }
 
   function money(value) { return "$" + Number(value || 0).toFixed(2); }
