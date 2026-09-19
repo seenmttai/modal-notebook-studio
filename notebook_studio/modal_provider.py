@@ -306,7 +306,7 @@ PYMETRICS'''
         try:
             entries = volume.listdir(root, recursive=True)
         except Exception as exc:
-            if "not found" in str(exc).lower():
+            if any(message in str(exc).lower() for message in ("not found", "no such file", "does not exist")):
                 return []
             raise
         output = []
@@ -358,5 +358,11 @@ PYMETRICS'''
                 sandbox.detach()
             return
         volume = self.modal.Volume.from_name(self.volume_name, create_if_missing=True, client=self.client)
-        volume.remove_file(self._volume_path(workspace_path))
-        volume.commit()
+        try:
+            volume.remove_file(self._volume_path(workspace_path))
+        except Exception as exc:
+            if "no such file" in str(exc).lower() or "not found" in str(exc).lower():
+                # Keep the controller's index idempotent when a prior request removed
+                # the remote file but failed before updating local metadata.
+                return
+            raise
