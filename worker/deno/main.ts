@@ -109,6 +109,13 @@ function safeError(errorValue: unknown): { detail: string; status: number } {
       status: 413,
     };
   }
+  if (retryableGpuStartupError(errorValue)) {
+    return {
+      detail:
+        "Modal could not bring up this GPU right now. Retry shortly or choose another GPU; no notebook session was kept.",
+      status: 503,
+    };
+  }
   if (rawCode === "5" || /not.?found/i.test(String(errorValue))) {
     return {
       detail:
@@ -121,6 +128,11 @@ function safeError(errorValue: unknown): { detail: string; status: number } {
       "Modal request failed. Check the token, network, GPU availability, and Modal dashboard.",
     status: 502,
   };
+}
+
+function retryableGpuStartupError(errorValue: unknown): boolean {
+  const text = String(errorValue);
+  return /timed out|timeout|sandbox is unavailable|sandbox with container id|container id .* not found|preempt|capacity|no possible worker|worker type supports/i.test(text);
 }
 
 function getCredentials(request: Request): Credentials | null {
@@ -387,7 +399,10 @@ async function handleApi(request: Request): Promise<Response> {
         "+",
         "-",
       ).replaceAll("/", "_").replaceAll("=", "");
-      const result = await withModal(credentials, async (client) => {
+      let result: Record<string, unknown> | undefined;
+      for (let attempt = 0; attempt < 2 && !result; attempt++) {
+        try {
+          result = await withModal(credentials, async (client) => {
         const app = await client.apps.fromName(`${APP_PREFIX}-${namespace}`, {
           createIfMissing: true,
         });
@@ -406,7 +421,7 @@ async function handleApi(request: Request): Promise<Response> {
           "exec jupyter lab --no-browser --allow-root --ip=0.0.0.0 --port=8888 --ServerApp.root_dir=/workspace --ServerApp.allow_remote_access=True --ServerApp.allow_origin='*' --ServerApp.token=\"$JUPYTER_TOKEN\" > /workspace/outputs/jupyter.log 2>&1",
         ];
         const sandbox = await client.sandboxes.create(app, image, {
-          name: sessionName,
+          name: attempt ? `${sessionName}-${attempt}` : sessionName,
           tags: { application: APP_PREFIX, browser_owner: namespace },
           command,
           env: {
@@ -475,7 +490,12 @@ async function handleApi(request: Request): Promise<Response> {
           if (onAbort) request.signal.removeEventListener("abort", onAbort);
           sandbox.detach();
         }
-      });
+          });
+        } catch (cause) {
+          if (attempt === 1 || !retryableGpuStartupError(cause)) throw cause;
+        }
+      }
+      if (!result) throw new Error("Modal notebook launch failed without a result.");
       return json({ session: result });
     } catch (cause) {
       const mapped = safeError(cause);

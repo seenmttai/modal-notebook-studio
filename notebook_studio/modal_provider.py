@@ -139,36 +139,64 @@ class ModalProvider:
             "--ServerApp.allow_origin='*' "
             '--IdentityProvider.token="$JUPYTER_TOKEN"'
         )
-        with modal.enable_output():
-            sandbox = modal.Sandbox.create(
-                "bash",
-                "-lc",
-                command,
-                app=app,
-                image=image,
-                env={"JUPYTER_TOKEN": token},
-                gpu=gpu_key,
-                cpu=(cpus, cpus),
-                memory=(memory_gib * 1024, memory_gib * 1024),
-                timeout=runtime_seconds,
-                idle_timeout=idle_timeout_minutes * 60,
-                encrypted_ports=[port],
-                volumes={"/workspace": volume},
-                client=self.client,
-            )
-        try:
-            tunnel = sandbox.tunnels()[port]
-            url = f"{tunnel.url}/?token={token}"
-            self._wait_until_ready(tunnel.url, token, runtime_seconds=min(90, runtime_seconds))
-            sandbox_id = sandbox.object_id
-            sandbox.detach()
-            return LaunchedSandbox(sandbox_id, url, token)
-        except Exception:
-            with suppress(Exception):
-                sandbox.terminate(wait=True)
-            with suppress(Exception):
+        # GPU capacity can disappear between SandboxCreate and tunnel startup.
+        # Retry at most once, then surface the provider error to the caller.
+        for attempt in range(2):
+            sandbox = None
+            try:
+                with modal.enable_output():
+                    sandbox = modal.Sandbox.create(
+                        "bash",
+                        "-lc",
+                        command,
+                        app=app,
+                        image=image,
+                        env={"JUPYTER_TOKEN": token},
+                        gpu=gpu_key,
+                        cpu=(cpus, cpus),
+                        memory=(memory_gib * 1024, memory_gib * 1024),
+                        timeout=runtime_seconds,
+                        idle_timeout=idle_timeout_minutes * 60,
+                        encrypted_ports=[port],
+                        volumes={"/workspace": volume},
+                        client=self.client,
+                    )
+                tunnel = sandbox.tunnels(timeout=min(60, max(10, runtime_seconds)))[port]
+                url = f"{tunnel.url}/?token={token}"
+                self._wait_until_ready(tunnel.url, token, runtime_seconds=min(90, runtime_seconds))
+                sandbox_id = sandbox.object_id
                 sandbox.detach()
-            raise
+                return LaunchedSandbox(sandbox_id, url, token)
+            except Exception as exc:
+                if sandbox is not None:
+                    with suppress(Exception):
+                        sandbox.terminate(wait=True)
+                    with suppress(Exception):
+                        sandbox.detach()
+                if attempt == 1 or not self._retryable_launch_error(exc):
+                    raise
+                time.sleep(1)
+
+        raise RuntimeError("Modal notebook launch failed without an error.")
+
+    @staticmethod
+    def _retryable_launch_error(exc: Exception) -> bool:
+        """Return true for transient placement or container boot failures."""
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "timed out",
+                "timeout",
+                "sandbox is unavailable",
+                "sandbox with container id",
+                "container id",
+                "preempt",
+                "capacity",
+                "no possible worker",
+                "worker type supports",
+            )
+        )
 
     @staticmethod
     def _wait_until_ready(base_url: str, token: str, runtime_seconds: int) -> None:
