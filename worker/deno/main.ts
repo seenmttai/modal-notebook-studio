@@ -428,8 +428,20 @@ async function handleApi(request: Request): Promise<Response> {
           encryptedPorts: [8888],
           readinessProbe: Probe.withTcp(8888, { intervalMs: 2_000 }),
         });
+        let onAbort: (() => void) | undefined;
         try {
-          const tunnels = await sandbox.tunnels(60_000);
+          // A browser can close the request while Modal is still waiting for the
+          // encrypted tunnel. Race that disconnect against tunnel readiness so a
+          // successful Sandbox create can never become an orphaned session.
+          const clientDisconnected = new Promise<never>((_, reject) => {
+            onAbort = () => reject(new Error("The client disconnected before the notebook was ready."));
+            if (request.signal.aborted) onAbort();
+            else request.signal.addEventListener("abort", onAbort, { once: true });
+          });
+          const tunnels = await Promise.race([
+            sandbox.tunnels(60_000),
+            clientDisconnected,
+          ]);
           const tunnel = tunnels[8888];
           if (!tunnel?.url) {
             throw new Error("Modal did not return the Jupyter tunnel.");
@@ -460,6 +472,7 @@ async function handleApi(request: Request): Promise<Response> {
           await sandbox.terminate().catch(() => undefined);
           throw cause;
         } finally {
+          if (onAbort) request.signal.removeEventListener("abort", onAbort);
           sandbox.detach();
         }
       });
